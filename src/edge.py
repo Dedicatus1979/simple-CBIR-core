@@ -7,9 +7,11 @@ from DB import Database
 
 from six.moves import cPickle
 import numpy as np
-import scipy.misc
+from PIL import Image
 from math import sqrt
 import os
+
+from tqdm import tqdm
 
 
 stride = (1, 1)
@@ -104,7 +106,8 @@ class Edge(object):
     if isinstance(input, np.ndarray):  # examinate input type
       img = input.copy()
     else:
-      img = scipy.misc.imread(input, mode='RGB')
+      img = Image.open(input, mode='r').convert('RGB')  # scipy.misc.imread 已被移除，替换为Image.open(img_path)
+      img = np.array(img)  # 同步修改将图片转化为ndarray
     height, width, channel = img.shape
   
     if type == 'global':
@@ -150,7 +153,12 @@ class Edge(object):
           hist[idx] += np.sum(img[hs:he, ws:we] * k)  # element-wise product
   
     if normalize:
-      hist /= np.sum(hist)
+      if np.sum(hist):
+        hist /= np.sum(hist)
+      elif np.max(np.abs(hist)) == 0:
+        pass
+      else:
+        hist /= np.max(np.abs(hist))
   
     return hist
   
@@ -173,7 +181,7 @@ class Edge(object):
   
       samples = []
       data = db.get_data()
-      for d in data.itertuples():
+      for d in tqdm(data.itertuples()):
         d_img, d_cls = getattr(d, "img"), getattr(d, "cls")
         d_hist = self.histogram(d_img, type=h_type, n_slice=n_slice)
         samples.append({

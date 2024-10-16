@@ -7,9 +7,11 @@ from DB import Database
 
 from six.moves import cPickle
 import numpy as np
-import scipy.misc
+from PIL import Image
 import itertools
 import os
+
+from tqdm import tqdm
 
 
 # configs for histogram
@@ -19,6 +21,7 @@ h_type  = 'region'  # global or region
 d_type  = 'd1'      # distance type
 
 depth   = 3         # retrieved depth, set to None will count the ap for whole database
+# depth 指的是最终计算MP时保留的距离最小的几个实体，值为几即保留几个
 
 ''' MMAP
      depth
@@ -56,6 +59,8 @@ depth   = 3         # retrieved depth, set to None will count the ap for whole d
      h_type
       region,bin4,slice2,d1,MMAP 0.23358615622
       global,bin4,d1,MMAP 0.229125435746
+      
+      MMAP 0.3656666666666667
 '''
 
 # cache dir
@@ -67,7 +72,7 @@ if not os.path.exists(cache_dir):
 class Color(object):
 
   def histogram(self, input, n_bin=n_bin, type=h_type, n_slice=n_slice, normalize=True):
-    ''' count img color histogram
+    ''' count img color histogram 统计图片中的颜色直方
   
       arguments
         input    : a path to a image or a numpy.ndarray
@@ -86,12 +91,15 @@ class Color(object):
     if isinstance(input, np.ndarray):  # examinate input type
       img = input.copy()
     else:
-      img = scipy.misc.imread(input, mode='RGB')
+      img = Image.open(input, mode='r').convert('RGB')  # scipy.misc.imread 已被移除，替换为Image.open(img_path)
+      img = np.array(img)   # 同步修改将图片转化为ndarray
     height, width, channel = img.shape
     bins = np.linspace(0, 256, n_bin+1, endpoint=True)  # slice bins equally for each channel
+    # bins 是一个0-256包含端点的均匀分割为13份的数组。[0,21.3,42.6,64,85,106,128,149,170,192,213,234,256]
   
     if type == 'global':
       hist = self._count_hist(img, n_bin, bins, channel)
+      # print(hist)
   
     elif type == 'region':
       hist = np.zeros((n_slice, n_slice, n_bin ** channel))
@@ -105,29 +113,43 @@ class Color(object):
   
     if normalize:
       hist /= np.sum(hist)
+    # 这个正则化居然是和为1，不应该是每个值在0-1之间嘛
+    # print(hist)
   
     return hist.flatten()
   
   
   def _count_hist(self, input, n_bin, bins, channel):
+    '''对图像中的颜色直方进行统计'''
     img = input.copy()
     bins_idx = {key: idx for idx, key in enumerate(itertools.product(np.arange(n_bin), repeat=channel))}  # permutation of bins
+    # itertools.product(np.arange(n_bin), repeat=channel)) 是一个生成器，例如 itertools.product(np.arange(2), repeat=1))用for
+    # 读出来的是简单的 0，1。如果是 itertools.product(np.arange(2), repeat=2))读出来的是00，01，10，11，上面的生成器生成出来的是000，
+    # 001一直至111111，然后利用enumerate将其与index打包输出被集合bins_idx接收
+
     hist = np.zeros(n_bin ** channel)
   
     # cluster every pixels
     for idx in range(len(bins)-1):
       img[(input >= bins[idx]) & (input < bins[idx+1])] = idx
+    # 这一步是将图像中的rgb值从rgb编码为直方图中的值，例如11为234-265，0为0-21，一张图为[[[1,1,250],[250,250,1]],[[250,250,1]],[[1,1,250]]]，
+    # 则该图转化为[[[0,0,11],[11,11,0]],[[11,11,0]],[[0,0,11]]]
+
     # add pixels into bins
     height, width, _ = img.shape
     for h in range(height):
       for w in range(width):
         b_idx = bins_idx[tuple(img[h,w])]
         hist[b_idx] += 1
-  
+    # 这里是在循环求这张图中的每种rgb的数量，例如一张图为[[[0,0,1],[0,0,2]],[[0,0,1]],[[0,0,3]]]，然后再定义一个列表hist最初是[0,0,0]
+    # 这个列表第一个值代表[0,0,0]出现的次数，第二个值代表[0,0,1]出现的次数，依此类推，最后输出的hist是[0,2,1,1]
+
     return hist
   
   
   def make_samples(self, db, verbose=True):
+    '''用于制作样本？跟废话似的
+    '''
     if h_type == 'global':
       sample_cache = "histogram_cache-{}-n_bin{}".format(h_type, n_bin)
     elif h_type == 'region':
@@ -142,7 +164,7 @@ class Color(object):
         print("Counting histogram..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
       samples = []
       data = db.get_data()
-      for d in data.itertuples():
+      for d in tqdm(data.itertuples()):
         d_img, d_cls = getattr(d, "img"), getattr(d, "cls")
         d_hist = self.histogram(d_img, type=h_type, n_bin=n_bin, n_slice=n_slice)
         samples.append({
@@ -161,7 +183,7 @@ if __name__ == "__main__":
   color = Color()
 
   # test normalize
-  hist = color.histogram(data.ix[0,0], type='global')
+  hist = color.histogram(data.iloc[0,0], type='global')
   assert hist.sum() - 1 < 1e-9, "normalize false"
 
   # test histogram bins
@@ -173,6 +195,7 @@ if __name__ == "__main__":
   IMG = IMG.astype(int)
   hist = color.histogram(IMG, type='global', n_bin=4)
   assert np.equal(np.where(hist > 0)[0], np.array([37, 43, 58, 61])).all(), "global histogram implement failed"
+  # equal中的内容，是说比较两个数组是否相同，例如[1,2]与[1,3]相比，输出是[True,False]，然后all是比较表内是否相同，这个例子中输出是False
   hist = color.histogram(IMG, type='region', n_bin=4, n_slice=2)
   assert np.equal(np.where(hist > 0)[0], np.array([58, 125, 165, 235])).all(), "region histogram implement failed"
 
@@ -195,3 +218,4 @@ if __name__ == "__main__":
     print("Class {}, MAP {}".format(cls, MAP))
     cls_MAPs.append(MAP)
   print("MMAP", np.mean(cls_MAPs))
+  # 最后计算出每个类的ap已经总平均ap

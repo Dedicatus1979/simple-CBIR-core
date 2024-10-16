@@ -10,8 +10,10 @@ from skimage import color
 
 from six.moves import cPickle
 import numpy as np
-import scipy.misc
+from PIL import Image
 import os
+
+from tqdm import tqdm
 
 n_bin    = 10
 n_slice  = 6
@@ -89,7 +91,8 @@ class HOG(object):
     if isinstance(input, np.ndarray):  # examinate input type
       img = input.copy()
     else:
-      img = scipy.misc.imread(input, mode='RGB')
+      img = Image.open(input, mode='r').convert('RGB')  # scipy.misc.imread 已被移除，替换为Image.open(img_path)
+      img = np.array(img)  # 同步修改将图片转化为ndarray
     height, width, channel = img.shape
   
     if type == 'global':
@@ -139,7 +142,7 @@ class HOG(object):
 
       samples = []
       data = db.get_data()
-      for d in data.itertuples():
+      for d in tqdm(data.itertuples()):
         d_img, d_cls = getattr(d, "img"), getattr(d, "cls")
         d_hist = self.histogram(d_img, type=h_type, n_slice=n_slice)
         samples.append({

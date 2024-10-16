@@ -5,8 +5,10 @@ from __future__ import print_function
 import pandas as pd
 import os
 
-DB_dir = 'database'
-DB_csv = 'data.csv'
+from tqdm import tqdm
+
+DB_dir = '../database'
+DB_csv = '../data.csv'
 
 
 class Database(object):
@@ -21,7 +23,7 @@ class Database(object):
       return
     with open(DB_csv, 'w', encoding='UTF-8') as f:
       f.write("img,cls")
-      for root, _, files in os.walk(DB_dir, topdown=False):
+      for root, _, files in tqdm(os.walk(DB_dir, topdown=False)):
         cls = root.split('/')[-1]
         for name in files:
           if not name.endswith('.jpg'):

@@ -8,13 +8,16 @@ from DB import Database
 from skimage.filters import gabor_kernel
 from skimage import color
 from scipy import ndimage as ndi
+from PIL import Image
 
 import multiprocessing
 
 from six.moves import cPickle
 import numpy as np
-import scipy.misc
+
 import os
+
+from tqdm import tqdm
 
 
 theta     = 4
@@ -102,7 +105,8 @@ class Gabor(object):
     if isinstance(input, np.ndarray):  # examinate input type
       img = input.copy()
     else:
-      img = scipy.misc.imread(input, mode='RGB')
+      img = Image.open(input, mode='r').convert('RGB')  # scipy.misc.imread 已被移除，替换为Image.open(img_path)
+      img = np.array(img)  # 同步修改将图片转化为ndarray
     height, width, channel = img.shape
   
     if type == 'global':
@@ -203,7 +207,7 @@ class Gabor(object):
   
       samples = []
       data = db.get_data()
-      for d in data.itertuples():
+      for d in tqdm(data.itertuples()):
         d_img, d_cls = getattr(d, "img"), getattr(d, "cls")
         d_hist = self.gabor_histogram(d_img, type=h_type, n_slice=n_slice)
         samples.append({

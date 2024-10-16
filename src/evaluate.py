@@ -5,6 +5,8 @@ from __future__ import print_function
 from scipy import spatial
 import numpy as np
 
+from tqdm import tqdm
+
 
 class Evaluation(object):
 
@@ -40,7 +42,8 @@ def distance(v1, v2, d_type='d1'):
 
 
 def AP(label, results, sort=True):
-  ''' infer a query, return it's ap
+  ''' infer a query, return it's ap  计算对于特定的标签时，result的精度
+  例如输入的result里有3个类别，其中一个类别与label相同，则精度即是1
 
     arguments
       label  : query's class
@@ -65,7 +68,7 @@ def AP(label, results, sort=True):
 
 
 def infer(query, samples=None, db=None, sample_db_fn=None, depth=None, d_type='d1'):
-  ''' infer a query, return it's ap
+  ''' infer a query, return it's ap  推断输入值query的推断精度
 
     arguments
       query       : a dict with three keys, see the template
@@ -89,8 +92,10 @@ def infer(query, samples=None, db=None, sample_db_fn=None, depth=None, d_type='d
     samples = sample_db_fn(db)
 
   q_img, q_cls, q_hist = query['img'], query['cls'], query['hist']
+  # 这里获取的是待计算值（单个的图片）的信息
   results = []
   for idx, sample in enumerate(samples):
+    # 这里是对样本中的每个值计算待计算向量与这些值的距离
     s_img, s_cls, s_hist = sample['img'], sample['cls'], sample['hist']
     if q_img == s_img:
       continue
@@ -99,6 +104,7 @@ def infer(query, samples=None, db=None, sample_db_fn=None, depth=None, d_type='d
                     'cls': s_cls
                   })
   results = sorted(results, key=lambda x: x['dis'])
+  # 对results内的字典，按距离升序排序
   if depth and depth <= len(results):
     results = results[:depth]
   ap = AP(q_cls, results, sort=False)
@@ -127,7 +133,7 @@ def evaluate(db, sample_db_fn, depth=None, d_type='d1'):
 
 
 def evaluate_class(db, f_class=None, f_instance=None, depth=None, d_type='d1'):
-  ''' infer the whole database
+  ''' infer the whole database  对整个数据库进行评估
 
     arguments
       db     : an instance of class Database
@@ -139,14 +145,17 @@ def evaluate_class(db, f_class=None, f_instance=None, depth=None, d_type='d1'):
 
   classes = db.get_class()
   ret = {c: [] for c in classes}
+  # 获取所有图像种类的类名
 
   if f_class:
     f = f_class()
   elif f_instance:
     f = f_instance
   samples = f.make_samples(db)
-  for query in samples:
+  # 从缓存文件或当场计算库中所有图像的特征向量
+  for query in tqdm(samples):
     ap, _ = infer(query, samples=samples, depth=depth, d_type=d_type)
     ret[query['cls']].append(ap)
+    # 在ret中写入精度
 
   return ret

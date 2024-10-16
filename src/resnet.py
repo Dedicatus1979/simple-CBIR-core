@@ -11,12 +11,13 @@ import torch.utils.model_zoo as model_zoo
 
 from six.moves import cPickle
 import numpy as np
-import scipy.misc
+from PIL import Image
 import os
 
 from evaluate import evaluate_class
 from DB import Database
 
+from tqdm import tqdm
 
 '''
   downloading problem in mac OSX should refer to this answer:
@@ -138,9 +139,10 @@ class ResNetFeat(object):
         res_model = res_model.cuda()
       samples = []
       data = db.get_data()
-      for d in data.itertuples():
+      for d in tqdm(data.itertuples()):
         d_img, d_cls = getattr(d, "img"), getattr(d, "cls")
-        img = scipy.misc.imread(d_img, mode="RGB")
+        img = Image.open(d_img, mode='r').convert('RGB')  # scipy.misc.imread 已被移除，替换为Image.open(img_path)
+        img = np.array(img)  # 同步修改将图片转化为ndarray
         img = img[:, :, ::-1]  # switch to BGR
         img = np.transpose(img, (2, 0, 1)) / 255.
         img[0] -= means[0]  # reduce B's mean
