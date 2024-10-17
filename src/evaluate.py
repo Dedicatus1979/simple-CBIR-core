@@ -67,7 +67,7 @@ def AP(label, results, sort=True):
   return np.mean(precision)
 
 
-def infer(query, samples=None, db=None, sample_db_fn=None, depth=None, d_type='d1'):
+def infer(query, samples=None, db=None, sample_db_fn=None, depth=None, return_img=False, d_type='d1'):
   ''' infer a query, return it's ap  推断输入值query的推断精度
 
     arguments
@@ -101,7 +101,8 @@ def infer(query, samples=None, db=None, sample_db_fn=None, depth=None, d_type='d
       continue
     results.append({
                     'dis': distance(q_hist, s_hist, d_type=d_type),
-                    'cls': s_cls
+                    'cls': s_cls,
+                    **({'img': s_img} if return_img else {})
                   })
   results = sorted(results, key=lambda x: x['dis'])
   # 对results内的字典，按距离升序排序

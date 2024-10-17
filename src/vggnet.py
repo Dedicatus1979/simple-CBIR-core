@@ -23,12 +23,12 @@ from tqdm import tqdm
     https://stackoverflow.com/a/42334357
 '''
 
-# configs for histogram
-VGG_model  = 'vgg19'  # model type
-pick_layer = 'avg'    # extract feature of this layer
-d_type     = 'd1'     # distance type
+# configs for histogram  直方图设置
+VGG_model  = 'vgg19'  # model type 指定模型
+pick_layer = 'avg'    # extract feature of this layer 选择使用的特征层
+d_type     = 'd1'     # distance type  指定距离量度类型
 
-depth      = 3        # retrieved depth, set to None will count the ap for whole database
+depth      = 3        # retrieved depth, set to None will count the ap for whole database  设置检索深度，设置None将检索整个数据库
 
 ''' MMAP
      depth
@@ -52,7 +52,7 @@ depth      = 3        # retrieved depth, set to None will count the ap for whole
 '''
 
 use_gpu = torch.cuda.is_available()
-means = np.array([103.939, 116.779, 123.68]) / 255. # mean of three channels in the order of BGR
+means = np.array([103.939, 116.779, 123.68]) / 255. # mean of three channels in the order of BGR 均值标准化，用于图像预处理使用
 
 # cache dir
 cache_dir = 'cache'
@@ -61,26 +61,38 @@ if not os.path.exists(cache_dir):
 
 
 class VGGNet(VGG):
+  '''该类继承自VGG，用于自定义所需要的预训练模型的层数'''
   def __init__(self, pretrained=True, model='vgg16', requires_grad=False, remove_fc=False, show_params=False):
+    if pretrained:    # pretrained 参数已弃用
+      vgg = getattr(models,model)(weights=getattr(models,model.upper()+'_Weights').DEFAULT)
+    else:
+      vgg = getattr(models,model)()
+
     super().__init__(make_layers(cfg[model]))
     self.ranges = ranges[model]
     self.fc_ranges = ((0, 2), (2, 5), (5, 7))
 
-    if pretrained:
-      exec("self.load_state_dict(models.%s(pretrained=True).state_dict())" % model)
+    self.load_state_dict(vgg.state_dict())
+
+    # if pretrained:
+    #   exec("self.load_state_dict(models.%s(pretrained=True).state_dict())" % model)
 
     if not requires_grad:
+      '''禁用参数的梯度计算'''
       for param in super().parameters():
         param.requires_grad = False
 
     if remove_fc:  # delete redundant fully-connected layer params, can save memory
+      '''是否删除全连接层'''
       del self.classifier
 
     if show_params:
+      '''是否显示模型参数'''
       for name, param in self.named_parameters():
         print(name, param.size())
 
   def forward(self, x):
+    '''这个函数是输出特征的？向前传播？不知道输入是什么'''
     output = {}
 
     x = self.features(x)
@@ -145,53 +157,59 @@ def make_layers(cfg, batch_norm=False):
 
 class VGGNetFeat(object):
 
+  def extract_features(self, db):
+    vgg_model = VGGNet(requires_grad=False, model=VGG_model)
+    vgg_model.eval()
+    if use_gpu:
+      vgg_model = vgg_model.cuda()
+    samples = []
+    data = db.get_data()
+    for d in tqdm(data.itertuples()):
+      d_img, d_cls = getattr(d, "img"), getattr(d, "cls")
+      img = Image.open(d_img, mode='r').convert('RGB')  # scipy.misc.imread 已被移除，替换为Image.open(img_path)
+      img = np.array(img)  # 同步修改将图片转化为ndarray
+      img = img[:, :, ::-1]  # switch to BGR
+      img = np.transpose(img, (2, 0, 1)) / 255.
+      img[0] -= means[0]  # reduce B's mean
+      img[1] -= means[1]  # reduce G's mean
+      img[2] -= means[2]  # reduce R's mean
+      img = np.expand_dims(img, axis=0)
+      try:
+        if use_gpu:
+          inputs = torch.autograd.Variable(torch.from_numpy(img).cuda().float())
+        else:
+          inputs = torch.autograd.Variable(torch.from_numpy(img).float())
+        d_hist = vgg_model(inputs)[pick_layer]
+        d_hist = np.sum(d_hist.data.cpu().numpy(), axis=0)
+        d_hist /= np.sum(d_hist)  # normalize
+        samples.append({
+          'img': d_img,
+          'cls': d_cls,
+          'hist': d_hist
+        })
+      except:
+        pass
+    return samples
+
   def make_samples(self, db, verbose=True):
+    '''这个方法是对数据库内所有图片计算直方图特征向量，并将其作为缓存存入硬盘'''
     sample_cache = '{}-{}'.format(VGG_model, pick_layer)
-  
+
     try:
-      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb", True))
-      for sample in samples:
-        sample['hist'] /= np.sum(sample['hist'])  # normalize
-      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb", True))
+      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb"))
+      # for sample in samples:
+      #   sample['hist'] /= np.sum(sample['hist'])  # normalize
+      # cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
       if verbose:
         print("Using cache..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
     except:
       if verbose:
         print("Counting histogram..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
-  
-      vgg_model = VGGNet(requires_grad=False, model=VGG_model)
-      vgg_model.eval()
-      if use_gpu:
-        vgg_model = vgg_model.cuda()
-      samples = []
-      data = db.get_data()
-      for d in tqdm(data.itertuples()):
-        d_img, d_cls = getattr(d, "img"), getattr(d, "cls")
-        img = Image.open(d_img, mode='r').convert('RGB')  # scipy.misc.imread 已被移除，替换为Image.open(img_path)
-        img = np.array(img)  # 同步修改将图片转化为ndarray
-        img = img[:, :, ::-1]  # switch to BGR
-        img = np.transpose(img, (2, 0, 1)) / 255.
-        img[0] -= means[0]  # reduce B's mean
-        img[1] -= means[1]  # reduce G's mean
-        img[2] -= means[2]  # reduce R's mean
-        img = np.expand_dims(img, axis=0)
-        try:
-          if use_gpu:
-            inputs = torch.autograd.Variable(torch.from_numpy(img).cuda().float())
-          else:
-            inputs = torch.autograd.Variable(torch.from_numpy(img).float())
-          d_hist = vgg_model(inputs)[pick_layer]
-          d_hist = np.sum(d_hist.data.cpu().numpy(), axis=0)
-          d_hist /= np.sum(d_hist)  # normalize
-          samples.append({
-                          'img':  d_img, 
-                          'cls':  d_cls, 
-                          'hist': d_hist
-                         })
-        except:
-          pass
-      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb", True))
-  
+
+      samples = self.extract_features(db)
+
+      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
+
     return samples
 
 
@@ -205,3 +223,5 @@ if __name__ == "__main__":
     print("Class {}, MAP {}".format(cls, MAP))
     cls_MAPs.append(MAP)
   print("MMAP", np.mean(cls_MAPs))
+
+
