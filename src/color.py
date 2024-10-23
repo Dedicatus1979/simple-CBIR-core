@@ -156,7 +156,7 @@ class Color(object):
       sample_cache = "histogram_cache-{}-n_bin{}-n_slice{}".format(h_type, n_bin, n_slice)
     
     try:
-      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb", True))
+      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb"))
       if verbose:
         print("Using cache..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
     except:
@@ -172,7 +172,7 @@ class Color(object):
                         'cls':  d_cls, 
                         'hist': d_hist
                       })
-      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb", True))
+      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
   
     return samples
 

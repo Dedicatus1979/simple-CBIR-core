@@ -131,7 +131,7 @@ class HOG(object):
       sample_cache = "HOG-{}-n_bin{}-n_slice{}-n_orient{}-ppc{}-cpb{}".format(h_type, n_bin, n_slice, n_orient, p_p_c, c_p_b)
   
     try:
-      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb", True))
+      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb"))
       for sample in samples:
         sample['hist'] /= np.sum(sample['hist'])  # normalize
       if verbose:
@@ -150,7 +150,7 @@ class HOG(object):
                         'cls':  d_cls, 
                         'hist': d_hist
                       })
-      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb", True))
+      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
 
     return samples
 

@@ -196,7 +196,7 @@ class Gabor(object):
       sample_cache = "gabor-{}-n_slice{}-theta{}-frequency{}-sigma{}-bandwidth{}".format(h_type, n_slice, theta, frequency, sigma, bandwidth)
   
     try:
-      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb", True))
+      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb"))
       for sample in samples:
         sample['hist'] /= np.sum(sample['hist'])  # normalize
       if verbose:
@@ -215,7 +215,7 @@ class Gabor(object):
                         'cls':  d_cls, 
                         'hist': d_hist
                       })
-      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb", True))
+      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
   
     return samples
 

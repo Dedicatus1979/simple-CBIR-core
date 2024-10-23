@@ -124,7 +124,7 @@ class ResNetFeat(object):
     sample_cache = '{}-{}'.format(RES_model, pick_layer)
   
     try:
-      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb", True))
+      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb"))
       for sample in samples:
         sample['hist'] /= np.sum(sample['hist'])  # normalize
       if verbose:

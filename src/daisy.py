@@ -127,7 +127,7 @@ class Daisy(object):
       sample_cache = "daisy-{}-n_slice{}-n_orient{}-step{}-radius{}-rings{}-histograms{}".format(h_type, n_slice, n_orient, step, radius, rings, histograms)
   
     try:
-      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb", True))
+      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb"))
       for sample in samples:
         sample['hist'] /= np.sum(sample['hist'])  # normalize
       if verbose:
@@ -149,7 +149,7 @@ class Daisy(object):
                         'cls':  d_cls, 
                         'hist': d_hist
                       })
-      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb", True))
+      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
   
     return samples
 

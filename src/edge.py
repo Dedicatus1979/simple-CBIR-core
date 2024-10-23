@@ -170,7 +170,7 @@ class Edge(object):
       sample_cache = "edge-{}-stride{}-n_slice{}".format(h_type, stride, n_slice)
   
     try:
-      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb", True))
+      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb"))
       for sample in samples:
         sample['hist'] /= np.sum(sample['hist'])  # normalize
       if verbose:
@@ -189,7 +189,7 @@ class Edge(object):
                         'cls':  d_cls, 
                         'hist': d_hist
                       })
-      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb", True))
+      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
   
     return samples
 
