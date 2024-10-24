@@ -11,6 +11,25 @@ a simple CBIR(Content-based image retrieval) system's core, based on pochih's CB
 
 故本项目还在施工中...
 
+# 简易使用方法：
+
+```
+from vggnet import VGGNetFeat
+d = OneData(img_path)  # img_path 为所需要以图搜图的图片路径
+vgg = VGGNetFeat()
+t = vgg.extract_features(d)[0]    # 用extract_features()提取图片的特征向量
+prod = infer_dis(t,db=db, sample_db_fn=vgg.make_samples,return_img=True)  # 使用infer_dir()获取该图片与数据库中图片的距离
+```
+
+接下去的适合在有缓存文件时使用：
+
+inder_dis()可以直接传缓存文件进去，例如 ``` prod = infer_dis(t, samples, return_img=True) ``` 其中samples是缓存文件，缓存文件为二进制文件，使用 ```pickle.load(open(file, 'rb'))``` 打开。
+
+获取缓存文件可以使用最上面那个例子的方法，也可以用 ```chage2 = creat_feature(db, f_class=VGGNetFeat)``` 其中f_class 是所用的特征提取方法所在的类。
+
+那么那么好用的方法是谁写的呢，是原作者写的。我本来以为原作者没写对外的接口，仔细看了下原作者好像是写了的。
+
+
 
 # 开发日志？
 
@@ -25,6 +44,8 @@ a simple CBIR(Content-based image retrieval) system's core, based on pochih's CB
 
 2024.10.24:
 
-将 DB.py, vggnet.py, evaluate.py 中对py2的兼容全部取消，因为我的开发环境没有py2，本项目只对自己的开发环境负责！
+取消了该项目对py2的支持，因为我的开发环境没有py2，本项目只对自己的开发环境负责！
 
 在 evaluate.py 中新建了一个函数 creat_feature，从 evaluate_class 中拆分出来，这样可以仅生成特征向量而不求其准度
+
+
