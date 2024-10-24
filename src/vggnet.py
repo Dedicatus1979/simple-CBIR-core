@@ -1,22 +1,21 @@
 # -*- coding: utf-8 -*-
+import time
+a = time.time()
+print("Now loading packages...")
+from pathlib import Path
 
-from __future__ import print_function
-
+import numpy as np
 import torch
 import torch.nn as nn
+from PIL import Image
+import pickle
 from torchvision import models
 from torchvision.models.vgg import VGG
-
-from six.moves import cPickle
-import numpy as np
-from PIL import Image
-import os
-
-from evaluate import evaluate_class
-from DB import Database
-
 from tqdm import tqdm
+print("Success for loading, Using times:", str(time.time() - a), 's.')
 
+from DB import Database
+from evaluate import evaluate_class
 
 '''
   downloading problem in mac OSX should refer to this answer:
@@ -24,11 +23,11 @@ from tqdm import tqdm
 '''
 
 # configs for histogram  直方图设置
-VGG_model  = 'vgg19'  # model type 指定模型
-pick_layer = 'avg'    # extract feature of this layer 选择使用的特征层
-d_type     = 'd1'     # distance type  指定距离量度类型
+VGG_model = 'vgg19'  # model type 指定模型
+pick_layer = 'avg'  # extract feature of this layer 选择使用的特征层
+d_type = 'd1'  # distance type  指定距离量度类型
 
-depth      = 3        # retrieved depth, set to None will count the ap for whole database  设置检索深度，设置None将检索整个数据库
+depth = 3  # retrieved depth, set to None will count the ap for whole database  设置检索深度，设置None将检索整个数据库
 
 ''' MMAP
      depth
@@ -52,176 +51,180 @@ depth      = 3        # retrieved depth, set to None will count the ap for whole
 '''
 
 use_gpu = torch.cuda.is_available()
-means = np.array([103.939, 116.779, 123.68]) / 255. # mean of three channels in the order of BGR 均值标准化，用于图像预处理使用
+means = np.array([103.939, 116.779, 123.68]) / 255.  # mean of three channels in the order of BGR 均值标准化，用于图像预处理使用
 
 # cache dir
 cache_dir = 'cache'
-if not os.path.exists(cache_dir):
-  os.makedirs(cache_dir)
+if not Path(cache_dir).exists():
+    Path(cache_dir).mkdir()
 
 
 class VGGNet(VGG):
-  '''该类继承自VGG，用于自定义所需要的预训练模型的层数'''
-  def __init__(self, pretrained=True, model='vgg16', requires_grad=False, remove_fc=False, show_params=False):
-    if pretrained:    # pretrained 参数已弃用
-      vgg = getattr(models,model)(weights=getattr(models,model.upper()+'_Weights').DEFAULT)
-    else:
-      vgg = getattr(models,model)()
+    '''该类继承自VGG，用于自定义所需要的预训练模型的层数'''
 
-    super().__init__(make_layers(cfg[model]))
-    self.ranges = ranges[model]
-    self.fc_ranges = ((0, 2), (2, 5), (5, 7))
+    def __init__(self, pretrained=True, model='vgg16', requires_grad=False, remove_fc=False, show_params=False):
+        if pretrained:  # pretrained 参数已弃用
+            vgg = getattr(models, model)(weights=getattr(models, model.upper() + '_Weights').DEFAULT)
+        else:
+            vgg = getattr(models, model)()
 
-    self.load_state_dict(vgg.state_dict())
+        super().__init__(make_layers(cfg[model]))
+        self.ranges = ranges[model]
+        self.fc_ranges = ((0, 2), (2, 5), (5, 7))
 
-    # if pretrained:
-    #   exec("self.load_state_dict(models.%s(pretrained=True).state_dict())" % model)
+        self.load_state_dict(vgg.state_dict())
 
-    if not requires_grad:
-      '''禁用参数的梯度计算'''
-      for param in super().parameters():
-        param.requires_grad = False
+        # if pretrained:
+        #   exec("self.load_state_dict(models.%s(pretrained=True).state_dict())" % model)
 
-    if remove_fc:  # delete redundant fully-connected layer params, can save memory
-      '''是否删除全连接层'''
-      del self.classifier
+        if not requires_grad:
+            '''禁用参数的梯度计算'''
+            for param in super().parameters():
+                param.requires_grad = False
 
-    if show_params:
-      '''是否显示模型参数'''
-      for name, param in self.named_parameters():
-        print(name, param.size())
+        if remove_fc:  # delete redundant fully-connected layer params, can save memory
+            '''是否删除全连接层'''
+            del self.classifier
 
-  def forward(self, x):
-    '''这个函数是输出特征的？向前传播？不知道输入是什么'''
-    output = {}
+        if show_params:
+            '''是否显示模型参数'''
+            for name, param in self.named_parameters():
+                print(name, param.size())
 
-    x = self.features(x)
+    def forward(self, x):
+        '''这个函数是输出特征的？向前传播？不知道输入是什么'''
+        output = {}
 
-    avg_pool = torch.nn.AvgPool2d((x.size(-2), x.size(-1)), stride=(x.size(-2), x.size(-1)), padding=0, ceil_mode=False, count_include_pad=True)
-    avg = avg_pool(x)  # avg.size = N * 512 * 1 * 1
-    avg = avg.view(avg.size(0), -1)  # avg.size = N * 512
-    output['avg'] = avg
+        x = self.features(x)
 
-    x = x.view(x.size(0), -1)  # flatten()
-    dims = x.size(1)
-    if dims >= 25088:
-      x = x[:, :25088]
-      for idx in range(len(self.fc_ranges)):
-        for layer in range(self.fc_ranges[idx][0], self.fc_ranges[idx][1]):
-          x = self.classifier[layer](x)
-        output["fc%d"%(idx+1)] = x
-    else:
-      w = self.classifier[0].weight[:, :dims]
-      b = self.classifier[0].bias
-      x = torch.matmul(x, w.t()) + b
-      x = self.classifier[1](x)
-      output["fc1"] = x
-      for idx in range(1, len(self.fc_ranges)):
-        for layer in range(self.fc_ranges[idx][0], self.fc_ranges[idx][1]):
-          x = self.classifier[layer](x)
-        output["fc%d"%(idx+1)] = x
+        avg_pool = torch.nn.AvgPool2d((x.size(-2), x.size(-1)), stride=(x.size(-2), x.size(-1)), padding=0,
+                                      ceil_mode=False, count_include_pad=True)
+        avg = avg_pool(x)  # avg.size = N * 512 * 1 * 1
+        avg = avg.view(avg.size(0), -1)  # avg.size = N * 512
+        output['avg'] = avg
 
-    return output
+        x = x.view(x.size(0), -1)  # flatten()
+        dims = x.size(1)
+        if dims >= 25088:
+            x = x[:, :25088]
+            for idx in range(len(self.fc_ranges)):
+                for layer in range(self.fc_ranges[idx][0], self.fc_ranges[idx][1]):
+                    x = self.classifier[layer](x)
+                output["fc%d" % (idx + 1)] = x
+        else:
+            w = self.classifier[0].weight[:, :dims]
+            b = self.classifier[0].bias
+            x = torch.matmul(x, w.t()) + b
+            x = self.classifier[1](x)
+            output["fc1"] = x
+            for idx in range(1, len(self.fc_ranges)):
+                for layer in range(self.fc_ranges[idx][0], self.fc_ranges[idx][1]):
+                    x = self.classifier[layer](x)
+                output["fc%d" % (idx + 1)] = x
+
+        return output
 
 
 ranges = {
-  'vgg11': ((0, 3), (3, 6),  (6, 11),  (11, 16), (16, 21)),
-  'vgg13': ((0, 5), (5, 10), (10, 15), (15, 20), (20, 25)),
-  'vgg16': ((0, 5), (5, 10), (10, 17), (17, 24), (24, 31)),
-  'vgg19': ((0, 5), (5, 10), (10, 19), (19, 28), (28, 37))
+    'vgg11': ((0, 3), (3, 6), (6, 11), (11, 16), (16, 21)),
+    'vgg13': ((0, 5), (5, 10), (10, 15), (15, 20), (20, 25)),
+    'vgg16': ((0, 5), (5, 10), (10, 17), (17, 24), (24, 31)),
+    'vgg19': ((0, 5), (5, 10), (10, 19), (19, 28), (28, 37))
 }
 
 # cropped version from https://github.com/pytorch/vision/blob/master/torchvision/models/vgg.py
 cfg = {
-  'vgg11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-  'vgg13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-  'vgg16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
-  'vgg19': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
+    'vgg11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
+    'vgg13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
+    'vgg16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
+    'vgg19': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
 }
 
+
 def make_layers(cfg, batch_norm=False):
-  layers = []
-  in_channels = 3
-  for v in cfg:
-    if v == 'M':
-      layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
-    else:
-      conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
-      if batch_norm:
-        layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
-      else:
-        layers += [conv2d, nn.ReLU(inplace=True)]
-      in_channels = v
-  return nn.Sequential(*layers)
+    layers = []
+    in_channels = 3
+    for v in cfg:
+        if v == 'M':
+            layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+        else:
+            conv2d = nn.Conv2d(in_channels, v, kernel_size=3, padding=1)
+            if batch_norm:
+                layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU(inplace=True)]
+            else:
+                layers += [conv2d, nn.ReLU(inplace=True)]
+            in_channels = v
+    return nn.Sequential(*layers)
 
 
 class VGGNetFeat(object):
 
-  def extract_features(self, db):
-    vgg_model = VGGNet(requires_grad=False, model=VGG_model)
-    vgg_model.eval()
-    if use_gpu:
-      vgg_model = vgg_model.cuda()
-    samples = []
-    data = db.get_data()
-    for d in tqdm(data.itertuples()):
-      d_img, d_cls = getattr(d, "img"), getattr(d, "cls")
-      img = Image.open(d_img, mode='r').convert('RGB')  # scipy.misc.imread 已被移除，替换为Image.open(img_path)
-      img = np.array(img)  # 同步修改将图片转化为ndarray
-      img = img[:, :, ::-1]  # switch to BGR
-      img = np.transpose(img, (2, 0, 1)) / 255.
-      img[0] -= means[0]  # reduce B's mean
-      img[1] -= means[1]  # reduce G's mean
-      img[2] -= means[2]  # reduce R's mean
-      img = np.expand_dims(img, axis=0)
-      try:
+    def extract_features(self, db):
+        a = time.time()
+        # print("Now loading models...")
+        vgg_model = VGGNet(requires_grad=False, model=VGG_model)
+        vgg_model.eval()
+        # print("Success for loading, Using times:", str(time.time() - a), 's.')
         if use_gpu:
-          inputs = torch.autograd.Variable(torch.from_numpy(img).cuda().float())
-        else:
-          inputs = torch.autograd.Variable(torch.from_numpy(img).float())
-        d_hist = vgg_model(inputs)[pick_layer]
-        d_hist = np.sum(d_hist.data.cpu().numpy(), axis=0)
-        d_hist /= np.sum(d_hist)  # normalize
-        samples.append({
-          'img': d_img,
-          'cls': d_cls,
-          'hist': d_hist
-        })
-      except:
-        pass
-    return samples
+            vgg_model = vgg_model.cuda()
+        samples = []
+        data = db.get_data()
+        for d in tqdm(data.itertuples(), desc='Extracting features'):
+            d_img, d_cls = getattr(d, "img"), getattr(d, "cls")
+            img = Image.open(d_img, mode='r').convert('RGB')  # scipy.misc.imread 已被移除，替换为Image.open(img_path)
+            img = np.array(img)  # 同步修改将图片转化为ndarray
+            img = img[:, :, ::-1]  # switch to BGR
+            img = np.transpose(img, (2, 0, 1)) / 255.
+            img[0] -= means[0]  # reduce B's mean
+            img[1] -= means[1]  # reduce G's mean
+            img[2] -= means[2]  # reduce R's mean
+            img = np.expand_dims(img, axis=0)
+            try:
+                if use_gpu:
+                    inputs = torch.autograd.Variable(torch.from_numpy(img).cuda().float())
+                else:
+                    inputs = torch.autograd.Variable(torch.from_numpy(img).float())
+                d_hist = vgg_model(inputs)[pick_layer]
+                d_hist = np.sum(d_hist.data.cpu().numpy(), axis=0)
+                d_hist /= np.sum(d_hist)  # normalize
+                samples.append({
+                    'img': d_img,
+                    'cls': d_cls,
+                    'hist': d_hist
+                })
+            except:
+                pass
+        return samples
 
-  def make_samples(self, db, verbose=True):
-    '''这个方法是对数据库内所有图片计算直方图特征向量，并将其作为缓存存入硬盘'''
-    sample_cache = '{}-{}'.format(VGG_model, pick_layer)
+    def make_samples(self, db, verbose=True):
+        '''这个方法是对数据库内所有图片计算直方图特征向量，并将其作为缓存存入硬盘'''
+        sample_cache = '{}-{}'.format(VGG_model, pick_layer)
 
-    try:
-      samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb"))
-      # for sample in samples:
-      #   sample['hist'] /= np.sum(sample['hist'])  # normalize
-      # cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
-      if verbose:
-        print("Using cache..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
-    except:
-      if verbose:
-        print("Counting histogram..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
+        try:
+            samples = pickle.load(open(Path(cache_dir) / Path(sample_cache), "rb"))
+            # for sample in samples:
+            #   sample['hist'] /= np.sum(sample['hist'])  # normalize
+            # cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
+            if verbose:
+                print("Using cache..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
+        except:
+            if verbose:
+                print("Counting histogram..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
 
-      samples = self.extract_features(db)
+            samples = self.extract_features(db)
 
-      cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
+            pickle.dump(samples, open(Path(cache_dir) / Path(sample_cache), "wb"))
 
-    return samples
+        return samples
 
 
 if __name__ == "__main__":
-  # evaluate database
-  db = Database()
-  APs = evaluate_class(db, f_class=VGGNetFeat, d_type=d_type, depth=depth)
-  cls_MAPs = []
-  for cls, cls_APs in APs.items():
-    MAP = np.mean(cls_APs)
-    print("Class {}, MAP {}".format(cls, MAP))
-    cls_MAPs.append(MAP)
-  print("MMAP", np.mean(cls_MAPs))
-
-
+    # evaluate database
+    db = Database()
+    APs = evaluate_class(db, f_class=VGGNetFeat, d_type=d_type, depth=depth)
+    cls_MAPs = []
+    for cls, cls_APs in APs.items():
+        MAP = np.mean(cls_APs)
+        print("Class {}, MAP {}".format(cls, MAP))
+        cls_MAPs.append(MAP)
+    print("MMAP", np.mean(cls_MAPs))
