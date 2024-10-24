@@ -39,6 +39,11 @@ class Database(object):
     def get_data(self):
         return self.data
 
+    def check_integrity(self):
+        """检查数据库完整性"""
+        pass
+
+
     def __add_data(self, img_path, img_cls=None):
         """增，去存未定的方法，请勿使用"""
         if os.path.isdir(img_path):
@@ -70,7 +75,7 @@ class OneData(Database):
         self.classes = set(self.data["cls"])
 
     def _gen_csv(self):
-        raise Exception("class OneData isn't have _gen_csv method.")
+        raise Exception("class OneData don't have _gen_csv method.")
 
 
 if __name__ == "__main__":
@@ -78,10 +83,9 @@ if __name__ == "__main__":
     data = db.get_data()
     classes = db.get_class()
 
-    # print("DB length:", len(db))
-    # print(classes)
+    print("DB length:", len(db))
+    print(classes)
 
 
-    # print(data)
-    db.add_data(r'F:\CBIR_pochih_CBIR\CBIR2\src\tests\10.jpg', 'tests')
+    print(data)
 

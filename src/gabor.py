@@ -19,6 +19,8 @@ import os
 
 from tqdm import tqdm
 
+'''这个稍微有点问题，过两天再继续修改'''
+
 
 theta     = 4
 frequency = (0.1, 0.5, 0.8)
@@ -84,18 +86,18 @@ if not os.path.exists(cache_dir):
   os.makedirs(cache_dir)
 
 
-class Gabor(object):  
-  
+class Gabor(object):
+
   def gabor_histogram(self, input, type=h_type, n_slice=n_slice, normalize=True):
     ''' count img histogram
-  
+
       arguments
         input    : a path to a image or a numpy.ndarray
         type     : 'global' means count the histogram for whole image
                    'region' means count the histogram for regions in images, then concatanate all of them
         n_slice  : work when type equals to 'region', height & width will equally sliced into N slices
         normalize: normalize output histogram
-  
+
       return
         type == 'global'
           a numpy array with size len(gabor_kernels)
@@ -108,26 +110,26 @@ class Gabor(object):
       img = Image.open(input, mode='r').convert('RGB')  # scipy.misc.imread 已被移除，替换为Image.open(img_path)
       img = np.array(img)  # 同步修改将图片转化为ndarray
     height, width, channel = img.shape
-  
+
     if type == 'global':
       hist = self._gabor(img, kernels=gabor_kernels)
-  
+
     elif type == 'region':
       hist = np.zeros((n_slice, n_slice, len(gabor_kernels)))
       h_silce = np.around(np.linspace(0, height, n_slice+1, endpoint=True)).astype(int)
       w_slice = np.around(np.linspace(0, width, n_slice+1, endpoint=True)).astype(int)
-  
+
       for hs in range(len(h_silce)-1):
         for ws in range(len(w_slice)-1):
           img_r = img[h_silce[hs]:h_silce[hs+1], w_slice[ws]:w_slice[ws+1]]  # slice img to regions
           hist[hs][ws] = self._gabor(img_r, kernels=gabor_kernels)
-  
+
     if normalize:
       hist /= np.sum(hist)
-  
+
     return hist.flatten()
-  
-  
+
+
   def _feats(self, image, kernel):
     '''
       arguments
@@ -141,8 +143,8 @@ class Gabor(object):
     feats[0] = filtered.mean()
     feats[1] = filtered.var()
     return feats
-  
-  
+
+
   def _power(self, image, kernel):
     '''
       arguments
@@ -158,28 +160,28 @@ class Gabor(object):
     feats[0] = f_img.mean()
     feats[1] = f_img.var()
     return feats
-  
-  
+
+
   def _gabor(self, image, kernels=make_gabor_kernel(theta, frequency, sigma, bandwidth), normalize=True):
     pool = multiprocessing.Pool(processes=multiprocessing.cpu_count())
-  
+
     img = color.rgb2gray(image)
-  
+
     results = []
     feat_fn = self._power
     for kernel in kernels:
       results.append(pool.apply_async(self._worker, (img, kernel, feat_fn)))
     pool.close()
     pool.join()
-    
+
     hist = np.array([res.get() for res in results])
-  
+
     if normalize:
       hist = hist / np.sum(hist, axis=0)
-  
+
     return hist.T.flatten()
-  
-  
+
+
   def _worker(self, img, kernel, feat_fn):
     try:
       ret = feat_fn(img, kernel)
@@ -187,14 +189,14 @@ class Gabor(object):
       print("return zero")
       ret = np.zeros(2)
     return ret
-  
-  
+
+
   def make_samples(self, db, verbose=True):
     if h_type == 'global':
       sample_cache = "gabor-{}-theta{}-frequency{}-sigma{}-bandwidth{}".format(h_type, theta, frequency, sigma, bandwidth)
     elif h_type == 'region':
       sample_cache = "gabor-{}-n_slice{}-theta{}-frequency{}-sigma{}-bandwidth{}".format(h_type, n_slice, theta, frequency, sigma, bandwidth)
-  
+
     try:
       samples = cPickle.load(open(os.path.join(cache_dir, sample_cache), "rb"))
       for sample in samples:
@@ -204,19 +206,19 @@ class Gabor(object):
     except:
       if verbose:
         print("Counting histogram..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
-  
+
       samples = []
       data = db.get_data()
       for d in tqdm(data.itertuples()):
         d_img, d_cls = getattr(d, "img"), getattr(d, "cls")
         d_hist = self.gabor_histogram(d_img, type=h_type, n_slice=n_slice)
         samples.append({
-                        'img':  d_img, 
-                        'cls':  d_cls, 
+                        'img':  d_img,
+                        'cls':  d_cls,
                         'hist': d_hist
                       })
       cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
-  
+
     return samples
 
 
@@ -226,6 +228,7 @@ if __name__ == "__main__":
   # evaluate database
   APs = evaluate_class(db, f_class=Gabor, d_type=d_type, depth=depth)
   cls_MAPs = []
+  print("depth=%s" % depth)
   for cls, cls_APs in APs.items():
     MAP = np.mean(cls_APs)
     print("Class {}, MAP {}".format(cls, MAP))

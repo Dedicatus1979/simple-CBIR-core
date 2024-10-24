@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import time
-a = time.time()
-print("Now loading packages...")
+# a = time.time()
+# print("Now loading packages...")
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +12,7 @@ import pickle
 from torchvision import models
 from torchvision.models.vgg import VGG
 from tqdm import tqdm
-print("Success for loading, Using times:", str(time.time() - a), 's.')
+# print("Success for loading, Using times:", str(time.time() - a), 's.')
 
 from DB import Database
 from evaluate import evaluate_class
@@ -160,11 +160,8 @@ def make_layers(cfg, batch_norm=False):
 class VGGNetFeat(object):
 
     def extract_features(self, db):
-        a = time.time()
-        # print("Now loading models...")
         vgg_model = VGGNet(requires_grad=False, model=VGG_model)
         vgg_model.eval()
-        # print("Success for loading, Using times:", str(time.time() - a), 's.')
         if use_gpu:
             vgg_model = vgg_model.cuda()
         samples = []
@@ -206,10 +203,10 @@ class VGGNetFeat(object):
             #   sample['hist'] /= np.sum(sample['hist'])  # normalize
             # cPickle.dump(samples, open(os.path.join(cache_dir, sample_cache), "wb"))
             if verbose:
-                print("Using cache..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
+                print("Using cache..., config=%s, distance=%s" % (sample_cache, d_type))
         except:
             if verbose:
-                print("Counting histogram..., config=%s, distance=%s, depth=%s" % (sample_cache, d_type, depth))
+                print("Counting histogram..., config=%s, distance=%s" % (sample_cache, d_type))
 
             samples = self.extract_features(db)
 
@@ -223,6 +220,7 @@ if __name__ == "__main__":
     db = Database()
     APs = evaluate_class(db, f_class=VGGNetFeat, d_type=d_type, depth=depth)
     cls_MAPs = []
+    print("depth=%s"%depth)
     for cls, cls_APs in APs.items():
         MAP = np.mean(cls_APs)
         print("Class {}, MAP {}".format(cls, MAP))

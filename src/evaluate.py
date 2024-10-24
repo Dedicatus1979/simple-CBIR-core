@@ -3,7 +3,6 @@
 import numpy as np
 from scipy import spatial
 from tqdm import tqdm
-import pickle
 
 
 class Evaluation(object):
@@ -65,8 +64,8 @@ def AP(label, results, sort=True):
     return np.mean(precision)
 
 
-def infer(query, samples=None, db=None, sample_db_fn=None, depth=None, return_img=False, d_type='d1'):
-    ''' infer a query, return it's ap  推断输入值query与库中其他图片的距离，按升序排序并输出对每个组的精度计算。
+def infer_dis(query, samples=None, db=None, sample_db_fn=None, depth=None, return_img=True, d_type='d1'):
+    ''' 推断输入图片query与库中其他图片的距离，按升序排序并输出。
 
       arguments
         query       : a dict with three keys, see the template
@@ -108,9 +107,34 @@ def infer(query, samples=None, db=None, sample_db_fn=None, depth=None, return_im
     # 对results内的字典，按距离升序排序
     if depth and depth <= len(results):
         results = results[:depth]
-    ap = AP(q_cls, results, sort=False)
+    return results
 
-    return ap, results
+
+def infer(query, samples=None, db=None, sample_db_fn=None, depth=None, d_type='d1'):
+    ''' infer a query, return it's ap  推断输入值query图片对每个组的精度计算。
+
+      arguments
+        query       : a dict with three keys, see the template
+                      {
+                        'img': <path_to_img>,
+                        'cls': <img class>,
+                        'hist' <img histogram>
+                      }
+        samples     : a list of {
+                                  'img': <path_to_img>,
+                                  'cls': <img class>,
+                                  'hist' <img histogram>
+                                }
+        db          : an instance of class Database
+        sample_db_fn: a function making samples, should be given if Database != None
+        depth       : retrieved depth during inference, the default depth is equal to database size
+        d_type      : distance type
+        return_img  : 控制输出的results中包不包含库中图片的源地址
+    '''
+    q_cls = query['cls']
+    results = infer_dis(query, samples=samples, db=db, sample_db_fn=sample_db_fn, depth=depth, return_img=False, d_type=d_type)
+    ap = AP(q_cls, results, sort=False)
+    return ap
 
 
 def evaluate(db, sample_db_fn, depth=None, d_type='d1'):
@@ -127,7 +151,7 @@ def evaluate(db, sample_db_fn, depth=None, d_type='d1'):
 
     samples = sample_db_fn(db)
     for query in samples:
-        ap, _ = infer(query, samples=samples, depth=depth, d_type=d_type)
+        ap = infer(query, samples=samples, depth=depth, d_type=d_type)
         ret[query['cls']].append(ap)
 
     return ret
@@ -167,8 +191,8 @@ def evaluate_class(db, f_class=None, f_instance=None, depth=None, d_type='d1'):
     samples = creat_feature(db, f_class, f_instance)
 
     # 从缓存文件或当场计算库中所有图像的特征向量
-    for query in tqdm(samples):
-        ap, _ = infer(query, samples=samples, depth=depth, d_type=d_type)
+    for query in tqdm(samples,desc='Computing APs'):
+        ap = infer(query, samples=samples, depth=depth, d_type=d_type)
         ret[query['cls']].append(ap)
         # 在ret中写入精度
 
